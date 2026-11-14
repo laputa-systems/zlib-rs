@@ -91,7 +91,7 @@ fuzz_target!(|input: (&[u8], usize)| {
     stream.next_out = output.as_mut_ptr();
     stream.avail_out = output.len() as _;
 
-    for chunk in deflated.as_slice().chunks(chunk_size) {
+    for chunk in deflated.chunks(chunk_size) {
         stream.next_in = chunk.as_ptr() as *mut u8;
         stream.avail_in = chunk.len() as _;
 

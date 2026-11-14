@@ -42,38 +42,27 @@ jobs:
       CARGO_TARGET_WASM32_WASIP1_RUNNER: "wasmtime --dir /home/runner/work/zlib-rs/zlib-rs/test-libz-rs-sys --dir /tmp/"
       CARGO_TARGET_WASM32_WASIP1_RUSTFLAGS: "-Ctarget-feature=+simd128"
       BINDGEN_EXTRA_CLANG_ARGS_wasm32_wasip1: "--sysroot=/tmp/wasi-sdk-24.0-x86_64-linux/share/wasi-sysroot"
-      RUSTFLAGS: ${{ matrix.rust == 'nightly' && matrix.target == 'x86_64-unknown-linux-gnu' && '-Zsanitizer=address' || '' }}
-      RUSTDOCFLAGS: ${{ matrix.rust == 'nightly' && matrix.target == 'x86_64-unknown-linux-gnu' && '-Zsanitizer=address' || '' }}
+      RUSTFLAGS: ${{ matrix.sanitizer && '-Zsanitizer=address' || '' }}
+      RUSTDOCFLAGS: ${{ matrix.sanitizer && '-Zsanitizer=address' || '' }}
     strategy:
       matrix:
         include:
-          - rust: stable
-            target: "x86_64-unknown-linux-gnu"
-            os: ubuntu-latest
+          - target: "x86_64-unknown-linux-gnu"
+            os: ubuntu-26.04
             codecov: true
 
-          - rust: msrv
-            target: "x86_64-unknown-linux-gnu"
-            os: ubuntu-latest
-            codecov: false
-
-          - rust: beta
-            target: "x86_64-unknown-linux-gnu"
-            os: ubuntu-latest
-            codecov: false
-
-          - rust: nightly
-            target: "x86_64-unknown-linux-gnu"
-            os: ubuntu-latest
+          - target: "x86_64-unknown-linux-gnu"
+            sanitizer: true
+            os: ubuntu-26.04
             flags: "--features=gzprintf"
             codecov: true
 
           - target: "aarch64-unknown-linux-gnu"
-            os: ubuntu-24.04-arm
+            os: ubuntu-26.04-arm
             codecov: true
 
           - target: "i686-unknown-linux-gnu"
-            os: ubuntu-latest
+            os: ubuntu-26.04
             codecov: true
             packages: gcc-i686-linux-gnu g++-i686-linux-gnu
 
@@ -87,24 +76,23 @@ jobs:
             codecov: false
             packages: gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu qemu-user qemu-user-binfmt
 
-          - rust: nightly
-            target: "loongarch64-unknown-linux-gnu"
+          - target: "loongarch64-unknown-linux-gnu"
             os: ubuntu-26.04
             codecov: false
             flags: "--features=lsx"
             packages: gcc-loongarch64-linux-gnu g++-loongarch64-linux-gnu qemu-user qemu-user-binfmt
 
           - target: "wasm32-wasip1"
-            os: ubuntu-latest
+            os: ubuntu-26.04
             flags: "-p zlib-rs -p libz-rs-sys -p test-libz-rs-sys"
             codecov: false
 
           - target: "x86_64-apple-darwin"
-            os: macos-latest
+            os: xcode-27
             codecov: true
 
           - target: "aarch64-apple-darwin"
-            os: macos-15
+            os: xcode-27
             codecov: true
 
           - target: "x86_64-pc-windows-gnu"
@@ -121,15 +109,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Install the correct rust toolchain/version
-      - name: Set target rust version
-        run: echo "MSRV=$(grep rust-version Cargo.toml | grep MSRV | awk -F '\"' '{print $2}')" >> $GITHUB_ENV
-        if: ${{ matrix.rust == 'msrv' }}
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: ${{ env.MSRV || matrix.rust || 'stable' }}
-          targets: "${{ matrix.target }}"
+      - name: Install target
+        run: rustup target add ${{ matrix.target }}
 
       # Install dependencies
       - name: Install cargo-llvm-cov & cargo-nextest
@@ -174,7 +155,7 @@ jobs:
 
       # Build feature configuriations
       - name: check all-features and no-default-features.
-        if: matrix.rust == 'stable' && matrix.target == 'x86_64-unknown-linux-gnu'
+        if: matrix.target == 'x86_64-unknown-linux-gnu' && !matrix.sanitizer
         run: |
           cargo test -p zlib-rs --target ${{matrix.target}} ${{ matrix.flags }} --all-features --no-run
           cargo test --target ${{matrix.target}} ${{ matrix.flags }} --no-default-features --features=rust-allocator --no-run
@@ -203,31 +184,23 @@ jobs:
           - '--no-default-features --features="c-allocator"'
           - '--no-default-features --features="rust-allocator"'
           - '--no-default-features --features="gz" --features="c-allocator"'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: stable
-          components: clippy, rustfmt
-          targets: ${{matrix.target}}
       - name: Rust cache
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
-            shared-key: "stable-${{matrix.target}}"
+            shared-key: "nightly-${{matrix.target}}"
 
-      - name: Run rustfmt and clippy
+      - name: Run clippy
         run: |
-          cargo fmt --all --check
           cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
-      - name: Run rustfmt and clippy (cdylib)
+      - name: Run clippy (cdylib)
         working-directory: libz-rs-sys-cdylib
         run: |
-          cargo fmt --all --check
           cargo clippy --target ${{matrix.target}} ${{matrix.features}} --workspace --all-targets -- -D warnings
       - name: Run clippy (fuzzers)
         if: ${{ !contains(matrix.features, 'gz') }}
@@ -238,16 +211,15 @@ jobs:
         run: |
           cargo doc --target ${{matrix.target}} -p libz-rs-sys
 
-  check-msrv:
-    name: MSRV check (${{ matrix.target }})
-    runs-on: ubuntu-latest
+  check-target:
+    name: Target check (${{ matrix.target }})
+    runs-on: ubuntu-26.04
 
     strategy:
       fail-fast: false
       matrix:
         # Roughly the targets for which we have custom SIMD.
         target:
-          - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
           - wasm32-unknown-unknown
           - loongarch64-unknown-linux-gnu
@@ -258,15 +230,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Determine MSRV
-        run: |
-          echo "MSRV=$(grep rust-version Cargo.toml | grep MSRV | awk -F '"' '{print $2}')" >> "$GITHUB_ENV"
-
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: ${{ env.MSRV }}
-          targets: ${{ matrix.target }}
+      - name: Install target
+        run: rustup target add ${{ matrix.target }}
 
       # Don't check the test crate (it would need a linker etc. to run build.rs).
       - name: Cargo check
@@ -274,7 +239,7 @@ jobs:
 
   fuzz:
     name: Smoke-test fuzzing targets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         features:
@@ -286,10 +251,6 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: nightly
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Smoke-test fuzz targets
@@ -306,40 +267,29 @@ jobs:
 
   fuzz-aarch64:
     name: Smoke-test fuzzing targets
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        include:
-          - rust: "stable"
-            os: macos-14
-            features: ""
-            target: "aarch64-apple-darwin"
+    runs-on: xcode-27
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: nightly
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Smoke-test fuzz targets
         run: |
-          cargo fuzz build --no-default-features --features="${{ matrix.features }}"
+          cargo fuzz build --no-default-features
           for target in $(cargo fuzz list); do
             if [ "$target" = "uncompress" ]; then
-              features="${{ matrix.features }} disable-checksum"
+              features="disable-checksum"
             else
-              features="${{ matrix.features }}"
+              features=""
             fi
             RUST_BACKTRACE=1 cargo fuzz run --no-default-features --features="$features" $target -- -max_total_time=10
           done
 
   fuzz-code-coverage:
     name: Fuzz with code coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -356,11 +306,8 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: nightly
-          components: llvm-tools-preview
+      - name: Install LLVM tools
+        run: rustup component add llvm-tools-preview
       - name: Install cargo fuzz
         run: cargo install cargo-fuzz
       - name: Install rustfilt
@@ -404,51 +351,46 @@ jobs:
           - target: x86_64-unknown-linux-gnu
         features:
           - ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: stable
-          targets: ${{matrix.target}}
       - name: "cdylib: default settings"
         working-directory: libz-rs-sys-cdylib
         env:
-          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release"
         run: |
           cargo build --release --target ${{matrix.target}}
-          cc -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
+          cc -o zpipe zpipe.c target/${{matrix.target}}/release/libz_rs.so
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: rust-allocator"
         env:
-          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features --features="rust-allocator"
-          cc -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
+          cc -o zpipe zpipe.c target/${{matrix.target}}/release/libz_rs.so
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: no_std"
         env:
-          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features
-          cc -DNO_STD -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
+          cc -DNO_STD -o zpipe zpipe.c target/${{matrix.target}}/release/libz_rs.so
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: no_std (`rust-allocator` feature)"
         env:
-          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --no-default-features --features="rust-allocator"
-          cc -DNO_STD -o zpipe zpipe.c target/${{matrix.target}}/release/deps/libz_rs.so
+          cc -DNO_STD -o zpipe zpipe.c target/${{matrix.target}}/release/libz_rs.so
           ./zpipe < Cargo.toml | ./zpipe -d > out.txt
           cmp -s Cargo.toml out.txt
       - name: "cdylib: custom-prefix"
@@ -457,26 +399,25 @@ jobs:
           LIBZ_RS_SYS_PREFIX: "MY_CUSTOM_PREFIX_"
         run: |
           cargo build --release --target ${{matrix.target}} --features=custom-prefix
-          objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q "MY_CUSTOM_PREFIX_uncompress" || (echo "symbol not found!" && exit 1)
+          objdump -tT target/${{matrix.target}}/release/libz_rs.so | grep -q "MY_CUSTOM_PREFIX_uncompress" || (echo "symbol not found!" && exit 1)
       - name: "cdylib: semver-prefix"
         working-directory: libz-rs-sys-cdylib
         run: |
           cargo build --release --target ${{matrix.target}} --features=semver-prefix
-          objdump -tT target/${{matrix.target}}/release/deps/libz_rs.so | grep -q -E "LIBZ_RS_SYS_v0.[0-9]+.x_uncompress" || (echo "symbol not found!" && exit 1)
+          objdump -tT target/${{matrix.target}}/release/libz_rs.so | grep -q -E "LIBZ_RS_SYS_v0.[0-9]+.x_uncompress" || (echo "symbol not found!" && exit 1)
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
       - name: "cdylib: example.c"
         env:
-          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release"
         working-directory: libz-rs-sys-cdylib
         run: |
-          rustup toolchain install nightly
-          cargo +nightly build --release --target ${{matrix.target}} --no-default-features --features=gz,gzprintf,c-allocator
+          cargo build --release --target ${{matrix.target}} --no-default-features --features=gz,gzprintf,c-allocator
           cc -o example example.c target/${{matrix.target}}/release/libz_rs.so
           ./example
           valgrind --track-origins=yes --error-exitcode=1 ./example
       - name: "cdylib: example.c with our .h files"
         env:
-          LD_LIBRARY_PATH: "target/${{matrix.target}}/release/deps"
+          LD_LIBRARY_PATH: "target/${{matrix.target}}/release"
         working-directory: libz-rs-sys-cdylib
         run: |
           ls target/${{matrix.target}}/release
@@ -495,17 +436,12 @@ jobs:
           - target: x86_64-unknown-linux-gnu
         features:
           - ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: nightly # for c-variadic functions
-          targets: ${{matrix.target}}
 
       - name: Install apt packages
         uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
@@ -526,7 +462,7 @@ jobs:
       - name: Build libz_rs.versioned.so
         working-directory: libz-rs-sys-cdylib
         run: |
-          cargo +nightly build --release --target ${{matrix.target}} --features=gz,gzprintf
+          cargo build --release --target ${{matrix.target}} --features=gz,gzprintf
 
           cc -shared \
             -Wl,--gc-sections \
@@ -561,17 +497,12 @@ jobs:
           - target: x86_64-unknown-linux-gnu
         features:
           - ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
         with:
           persist-credentials: false
-      - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@be73d7920c329f220ce78e0234b8f96b7ae60248
-        with:
-          toolchain: stable
-          targets: ${{matrix.target}}
       - name: Install cargo-c
         env:
           LINK: https://github.com/lu-zero/cargo-c/releases/download/v0.10.5
@@ -594,7 +525,7 @@ jobs:
 
   miri-zlib-rs:
     name: "Miri (zlib-rs)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -610,8 +541,8 @@ jobs:
       - name: Install Miri
         run: |
           rustup target add ${{ matrix.target }}
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
+          rustup component add miri
+          cargo miri setup
       - name: Install gcc
         if: ${{ contains(matrix.target, 'windows') }}
         run: |
@@ -622,11 +553,11 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test with miri
-        run: "cargo +nightly miri nextest run -p zlib-rs --target ${{ matrix.target }}"
+        run: "cargo miri nextest run -p zlib-rs --target ${{ matrix.target }}"
 
   miri-libz-rs-sys:
     name: "Miri (libz-rs-sys)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -642,8 +573,8 @@ jobs:
       - name: Install Miri
         run: |
           rustup target add ${{ matrix.target }}
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
+          rustup component add miri
+          cargo miri setup
       - name: Install gcc
         if: ${{ contains(matrix.target, 'windows') }}
         run: |
@@ -654,23 +585,23 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Test public C api with NULL arguments
-        run: "cargo +nightly miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} null::"
+        run: "cargo miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} null::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1"
       - name: Test gz internals with miri
         working-directory: libz-rs-sys
-        run: "cargo +nightly miri nextest run -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
+        run: "cargo miri nextest run -p libz-rs-sys --target ${{ matrix.target }} --features=gz gz::"
         env:
           MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation"
       - name: Test gz api with miri
         if: ${{ contains(matrix.target, 'linux') }}
-        run: "cargo +nightly miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
+        run: "cargo miri nextest run -p test-libz-rs-sys --target ${{ matrix.target }} gz::"
         env:
           MIRIFLAGS: "-Zmiri-no-short-fd-operations -Zmiri-disable-isolation"
 
   miri-avx512:
     name: "Miri avx512"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         include:
@@ -685,32 +616,32 @@ jobs:
       - name: Install Miri
         run: |
           rustup target add ${{ matrix.target }}
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
+          rustup component add miri
+          cargo miri setup
       - name: Install cargo-nextest
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
         with:
           tool: cargo-nextest
       - name: Test avx512 crc32 implementation
-        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=vpclmulqdq crc32::"
+        run: "cargo miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=vpclmulqdq crc32::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+vpclmulqdq,+avx512f"
       - name: Test avx512 adler32 implementation
-        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 adler32::avx512::test"
+        run: "cargo miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 adler32::avx512::test"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1,+avx512f,+avx512bw"
       - name: Test avx512 vnni adler32 implementation
-        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 adler32::"
+        run: "cargo miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 adler32::"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx2,+bmi2,+bmi1,+avx512f,+avx512bw,+avx512vnni"
       - name: Test avx512 compare256 implementation
-        run: "cargo +nightly miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 compare256"
+        run: "cargo miri nextest run -j4 -p zlib-rs --target ${{ matrix.target }} --features=avx512 compare256"
         env:
           RUSTFLAGS: "-Ctarget-feature=+avx512vl,+avx512bw"
 
   miri-simd:
     name: "Miri SIMD"
-    runs-on: ubuntu-24.04-arm # so we don't need to install gcc 
+    runs-on: ubuntu-26.04-arm # so we don't need to install gcc 
     strategy:
       matrix:
         include:
@@ -728,8 +659,8 @@ jobs:
 
       - name: Install Miri
         run: |
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
+          rustup component add miri
+          cargo miri setup
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@d12e869b89167df346dd0ff65da342d1fb1202fb # v2.53.2
@@ -737,14 +668,14 @@ jobs:
           tool: cargo-nextest
       - name: Test aarch64 with `+neon,+crc`
         if: ${{ contains(matrix.target, 'aarch64') }}
-        run: "cargo +nightly miri test  --target ${{ matrix.target }} -- crc32 adler32 compare256"
+        run: "cargo miri test  --target ${{ matrix.target }} -- crc32 adler32 compare256"
         env:
           RUSTFLAGS: "-Ctarget-feature=+crc"
       - name: Test loongarch64
         if: ${{ contains(matrix.target, 'loongarch64') }}
         # FIXME: the -p zlib-rs is needed because github's ubuntu
         # does not have loongarch64 gcc for building our C dependencies.
-        run: "cargo +nightly miri test  --target ${{ matrix.target }} -p zlib-rs -- crc32 adler32 compare256"
+        run: "cargo miri test  --target ${{ matrix.target }} -p zlib-rs -- crc32 adler32 compare256"
 
   run-flate2-test-suite:
     name: run flate2 test suite
@@ -754,7 +685,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
         features:
           - ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout sources
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
@@ -762,9 +693,7 @@ jobs:
           persist-credentials: false
       - name: run
         run: |
-          cd ..
-          git clone https://github.com/rust-lang/flate2-rs.git
-          cd flate2-rs
-          sed -i '/^libz-rs-sys =/c\libz-rs-sys = { path = "../zlib-rs/libz-rs-sys", optional = true, default-features = false, features = ["std", "rust-allocator"] }' Cargo.toml
-          cargo test --no-default-features --features="zlib-rs"
+          git clone https://github.com/rust-lang/flate2-rs.git ../flate2-rs
+          sed -i '/^libz-rs-sys =/c\libz-rs-sys = { path = "../zlib-rs/libz-rs-sys", optional = true, default-features = false, features = ["std", "rust-allocator"] }' ../flate2-rs/Cargo.toml
+          cargo test --manifest-path ../flate2-rs/Cargo.toml --no-default-features --features="zlib-rs"
 

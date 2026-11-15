@@ -14,8 +14,6 @@ on: # zizmor: ignore[cache-poisoning] not actually used for releases
   schedule:
     - cron: '0 4 * * *'
   merge_group:
-    branches:
-      - main
 
 jobs:
   build:

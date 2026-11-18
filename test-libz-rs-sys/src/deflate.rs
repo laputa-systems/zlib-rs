@@ -3287,7 +3287,31 @@ mod stable_api {
         }
 
         // Due to NoFlush there is data to write, but no buffer to write it into.
-        assert_eq!(d.set_level(9), Err(zlib_rs::DeflateError::StreamError));
+        assert_eq!(d.set_level(9), Ok(zlib_rs::Status::BufError));
+    }
+
+    #[test]
+    fn set_level_after_sync_flush_switches_between_stored_and_compressed() {
+        let mut d = zlib_rs::Deflate::new(1, true, 15);
+        let chunks: [Vec<u8>; 3] = [vec![b'a'; 4096], (0..4096u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect(), vec![b'b'; 4096]];
+        let mut compressed = Vec::new();
+        for (chunk, level) in chunks.iter().zip([1, 0, 1]) {
+            assert_eq!(d.set_level(level), Ok(zlib_rs::Status::Ok), "level {level}");
+            let mut output = vec![MaybeUninit::<u8>::uninit(); 8192];
+            let before = d.total_out();
+            d.compress_uninit(chunk, &mut output, DeflateFlush::SyncFlush).unwrap();
+            let written = (d.total_out() - before) as usize;
+            compressed.extend(output[..written].iter().map(|b| unsafe { b.assume_init() }));
+            if level == 0 {
+                assert!(written >= chunk.len(), "level 0 stores its input: {written}");
+            } else {
+                assert!(written < chunk.len() / 10, "level 1 compresses a run: {written}");
+            }
+        }
+        let mut inflate = zlib_rs::Inflate::new(true, 15);
+        let mut decompressed = vec![0u8; 3 * 4096];
+        inflate.decompress(&compressed, &mut decompressed, zlib_rs::InflateFlush::SyncFlush).unwrap();
+        assert_eq!(decompressed, chunks.concat());
     }
 
     /// Test that the Deflate state does not retain the dictionary.

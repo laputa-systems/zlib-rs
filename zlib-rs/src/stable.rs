@@ -403,14 +403,18 @@ impl Deflate {
     /// compression level. Flushing the stream before calling this method
     /// ensures that the function will succeed on the first call.
     pub fn set_level(&mut self, level: i32) -> Result<Status, DeflateError> {
-        // Clear these pointers so there can be no use after free.
+        // Clear these pointers so there can be no use after free. `params` may call `deflate`, which rejects a
+        // null output pointer as a stream error but returns a buffer error, without writing, when no output space
+        // is available. A dangling pointer with no space therefore lets a flushed stream change its level.
         self.inner.next_in = core::ptr::null_mut();
-        self.inner.next_out = core::ptr::null_mut();
+        self.inner.next_out = core::ptr::NonNull::dangling().as_ptr();
 
         self.inner.avail_in = 0;
         self.inner.avail_out = 0;
 
-        match crate::deflate::params(&mut self.inner, level, Default::default()) {
+        let result = crate::deflate::params(&mut self.inner, level, Default::default());
+        self.inner.next_out = core::ptr::null_mut();
+        match result {
             ReturnCode::Ok => Ok(Status::Ok),
             ReturnCode::StreamError => Err(DeflateError::StreamError),
             ReturnCode::BufError => Ok(Status::BufError),

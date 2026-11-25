@@ -1768,7 +1768,7 @@ pub(crate) const STD_MIN_MATCH: usize = 3;
 pub(crate) const STD_MAX_MATCH: usize = 258;
 
 /// The minimum wanted match length, affects deflate_quick, deflate_fast, deflate_medium and deflate_slow
-pub(crate) const WANT_MIN_MATCH: usize = 4;
+pub(crate) const WANT_MIN_MATCH: usize = if cfg!(feature = "chromium-compat") { 3 } else { 4 };
 
 pub(crate) const MIN_LOOKAHEAD: usize = STD_MAX_MATCH + STD_MIN_MATCH + 1;
 

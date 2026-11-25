@@ -15,7 +15,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
     let mut dist;
     let mut match_len;
 
-    let use_longest_match_slow = stream.state.max_chain_length > 1024;
+    let use_longest_match_slow = !cfg!(feature = "chromium-compat") && stream.state.max_chain_length > 1024;
     let valid_distance_range = 1..=stream.state.max_dist() as isize;
 
     let mut match_available = stream.state.match_available;
@@ -67,7 +67,7 @@ pub fn deflate_slow(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockSta
                 crate::deflate::longest_match::longest_match(state, hash_head)
             };
 
-            if match_len <= 5 && (state.strategy == Strategy::Filtered) {
+            if (match_len <= 5 && state.strategy == Strategy::Filtered) || (cfg!(feature = "chromium-compat") && match_len == 3 && state.strstart - state.match_start as usize > 4096) {
                 /* If prev_match is also WANT_MIN_MATCH, match_start is garbage
                  * but we will ignore the current match anyway.
                  */

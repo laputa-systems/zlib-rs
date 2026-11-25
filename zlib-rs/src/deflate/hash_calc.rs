@@ -12,7 +12,7 @@ impl HashCalcVariant {
     /// Use rolling hash for deflate_slow algorithm with level 9. It allows us to
     /// properly lookup different hash chains to speed up longest_match search.
     pub fn for_max_chain_length(max_chain_length: u16) -> Self {
-        if max_chain_length > 1024 {
+        if !cfg!(feature = "chromium-compat") && max_chain_length > 1024 {
             HashCalcVariant::Roll
         } else {
             HashCalcVariant::Standard
@@ -46,7 +46,7 @@ impl StandardHashCalc {
 
     #[inline]
     pub fn quick_insert_value(state: &mut State, string: usize, val: u32) -> u16 {
-        let hm = Self::update_hash(0, val) as usize;
+        let hm = if cfg!(feature = "chromium-compat") { (val.wrapping_mul(66521).wrapping_add(66521) >> 16) as usize & (state.lit_bufsize * 2 - 1) } else { Self::update_hash(0, val) as usize };
 
         let head = state.head.as_slice()[hm];
         if head != string as u16 {
@@ -71,7 +71,7 @@ impl StandardHashCalc {
 
             let val = u32::from_le_bytes(w.try_into().unwrap());
 
-            let hm = Self::update_hash(0, val) as usize;
+            let hm = if cfg!(feature = "chromium-compat") { (val.wrapping_mul(66521).wrapping_add(66521) >> 16) as usize & (state.lit_bufsize * 2 - 1) } else { Self::update_hash(0, val) as usize };
 
             let head = state.head.as_slice()[hm];
             if head != idx {

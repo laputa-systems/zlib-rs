@@ -66,6 +66,7 @@ impl Config {
     }
 }
 
+#[cfg(not(feature = "chromium-compat"))]
 pub static CONFIGURATION_TABLE: [Config; 10] = {
     [
         Config::new(0, 0, 0, 0, stored::deflate_stored), // 0 /* store only */
@@ -80,3 +81,17 @@ pub static CONFIGURATION_TABLE: [Config; 10] = {
         Config::new(32, 258, 258, 4096, slow::deflate_slow), // 9 /* max compression */
     ]
 };
+
+#[cfg(feature = "chromium-compat")]
+pub static CONFIGURATION_TABLE: [Config; 10] = [
+    Config::new(0, 0, 0, 0, stored::deflate_stored),
+    Config::new(4, 4, 8, 4, fast::deflate_fast),
+    Config::new(4, 5, 16, 8, fast::deflate_fast),
+    Config::new(4, 6, 32, 32, fast::deflate_fast),
+    Config::new(4, 4, 16, 16, slow::deflate_slow),
+    Config::new(8, 16, 32, 32, slow::deflate_slow),
+    Config::new(8, 16, 128, 128, slow::deflate_slow),
+    Config::new(8, 32, 128, 256, slow::deflate_slow),
+    Config::new(32, 128, 258, 1024, slow::deflate_slow),
+    Config::new(32, 258, 258, 4096, slow::deflate_slow),
+];

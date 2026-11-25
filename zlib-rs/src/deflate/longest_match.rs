@@ -127,7 +127,7 @@ fn longest_match_help<const SLOW: bool>(
     } else {
         // must initialize this variable
         limit_base = 0;
-        early_exit = state.level < EARLY_EXIT_TRIGGER_LEVEL;
+        early_exit = !cfg!(feature = "chromium-compat") && state.level < EARLY_EXIT_TRIGGER_LEVEL;
     }
 
     let scan_start = window[strstart..].as_ptr();

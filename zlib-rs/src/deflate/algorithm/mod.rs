@@ -3,10 +3,14 @@ use crate::{
     DeflateFlush,
 };
 
-use self::{huff::deflate_huff, rle::deflate_rle, stored::deflate_stored};
+#[cfg(not(feature = "chromium-compat"))]
+use self::rle::deflate_rle;
+use self::{huff::deflate_huff, stored::deflate_stored};
 
 #[cfg(feature = "chromium-compat")]
 mod chromium_fast;
+#[cfg(feature = "chromium-compat")]
+mod chromium_rle;
 mod fast;
 mod huff;
 mod medium;
@@ -33,6 +37,9 @@ pub fn run(stream: &mut DeflateStream, flush: DeflateFlush) -> BlockState {
     match stream.state.strategy {
         _ if stream.state.level == 0 => deflate_stored(stream, flush),
         Strategy::HuffmanOnly => deflate_huff(stream, flush),
+        #[cfg(feature = "chromium-compat")]
+        Strategy::Rle => chromium_rle::deflate_rle(stream, flush),
+        #[cfg(not(feature = "chromium-compat"))]
         Strategy::Rle => deflate_rle(stream, flush),
         Strategy::Default | Strategy::Filtered | Strategy::Fixed => {
             (CONFIGURATION_TABLE[stream.state.level as usize].func)(stream, flush)

@@ -1,0 +1,19 @@
+#[cfg(feature = "chromium-compat")]
+#[test]
+fn chromium_deflate_matches_fixed_stream() {
+    use zlib_rs::{Deflate, DeflateFlush, Status};
+    let input = b"abracadabra".repeat(100);
+    let mut output = [0; 128];
+    let mut stream = Deflate::new(6, true, 15);
+    assert_eq!(stream.compress(&input, &mut output, DeflateFlush::Finish), Ok(Status::StreamEnd));
+    assert_eq!(&output[..stream.total_out() as usize], &[0x78, 0x9c, 0x4b, 0x4c, 0x2a, 0x4a, 0x4c, 0x4e, 0x4c, 0x49, 0x4c, 0x2a, 0x4a, 0x4c, 0x1c, 0x65, 0x8e, 0x32, 0x47, 0x99, 0xa3, 0x4c, 0x72, 0x99, 0x00, 0xeb, 0x6e, 0xb0, 0xe0]);
+}
+
+#[test]
+fn invalid_distance_preserves_message() {
+    use zlib_rs::{Inflate, InflateFlush};
+    let input = [0x53, 0x97, 0x4b, 0x97, 0x51, 0x35, 0xb1, 0x67, 0xa6, 0xdc, 0x1e, 0xc4, 0xfc, 0xaa, 0xf9, 0xb0, 0xc5, 0x55, 0x87, 0xab, 0x92, 0x97, 0x7c, 0x53];
+    let mut stream = Inflate::new(false, 15);
+    let _ = stream.decompress(&input, &mut [0; 65536], InflateFlush::Finish);
+    assert_eq!(stream.error_message(), Some("invalid distance too far back"));
+}

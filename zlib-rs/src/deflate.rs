@@ -1827,7 +1827,17 @@ pub(crate) fn fill_window(stream: &mut DeflateStream) {
         state.lookahead += n;
 
         // Initialize the hash value now that we have some input:
-        if state.lookahead + state.insert >= STD_MIN_MATCH {
+        if cfg!(feature = "chromium-compat") {
+            if state.lookahead + state.insert > STD_MIN_MATCH {
+                let mut string = state.strstart - state.insert;
+                while state.insert != 0 {
+                    state.quick_insert_string(string);
+                    string += 1;
+                    state.insert -= 1;
+                    if state.lookahead + state.insert <= STD_MIN_MATCH { break; }
+                }
+            }
+        } else if state.lookahead + state.insert >= STD_MIN_MATCH {
             let string = state.strstart - state.insert;
             if state.max_chain_length > 1024 {
                 let v0 = state.window.filled()[string] as u32;

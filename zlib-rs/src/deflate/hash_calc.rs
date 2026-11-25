@@ -46,7 +46,7 @@ impl StandardHashCalc {
 
     #[inline]
     pub fn quick_insert_value(state: &mut State, string: usize, val: u32) -> u16 {
-        let hm = if cfg!(feature = "chromium-compat") { (val.wrapping_mul(66521).wrapping_add(66521) >> 16) as usize & (state.lit_bufsize * 2 - 1) } else { Self::update_hash(0, val) as usize };
+        let hm = if cfg!(feature = "chromium-compat") { (val.wrapping_mul(66521).wrapping_add(66521) >> 16) as usize & (Ord::max(state.lit_bufsize * 2, 1 << 15) - 1) } else { Self::update_hash(0, val) as usize };
 
         let head = state.head.as_slice()[hm];
         if head != string as u16 {
@@ -71,7 +71,7 @@ impl StandardHashCalc {
 
             let val = u32::from_le_bytes(w.try_into().unwrap());
 
-            let hm = if cfg!(feature = "chromium-compat") { (val.wrapping_mul(66521).wrapping_add(66521) >> 16) as usize & (state.lit_bufsize * 2 - 1) } else { Self::update_hash(0, val) as usize };
+            let hm = if cfg!(feature = "chromium-compat") { (val.wrapping_mul(66521).wrapping_add(66521) >> 16) as usize & (Ord::max(state.lit_bufsize * 2, 1 << 15) - 1) } else { Self::update_hash(0, val) as usize };
 
             let head = state.head.as_slice()[hm];
             if head != idx {

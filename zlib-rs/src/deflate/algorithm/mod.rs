@@ -5,6 +5,8 @@ use crate::{
 
 use self::{huff::deflate_huff, rle::deflate_rle, stored::deflate_stored};
 
+#[cfg(feature = "chromium-compat")]
+mod chromium_fast;
 mod fast;
 mod huff;
 mod medium;
@@ -85,9 +87,9 @@ pub static CONFIGURATION_TABLE: [Config; 10] = {
 #[cfg(feature = "chromium-compat")]
 pub static CONFIGURATION_TABLE: [Config; 10] = [
     Config::new(0, 0, 0, 0, stored::deflate_stored),
-    Config::new(4, 4, 8, 4, fast::deflate_fast),
-    Config::new(4, 5, 16, 8, fast::deflate_fast),
-    Config::new(4, 6, 32, 32, fast::deflate_fast),
+    Config::new(4, 4, 8, 4, chromium_fast::deflate_fast),
+    Config::new(4, 5, 16, 8, chromium_fast::deflate_fast),
+    Config::new(4, 6, 32, 32, chromium_fast::deflate_fast),
     Config::new(4, 4, 16, 16, slow::deflate_slow),
     Config::new(8, 16, 32, 32, slow::deflate_slow),
     Config::new(8, 16, 128, 128, slow::deflate_slow),
